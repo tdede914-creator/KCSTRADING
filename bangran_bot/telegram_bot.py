@@ -29,7 +29,18 @@ class TelegramController:
     def __init__(self, cfg: AppConfig, engine: TradingEngine):
         self.cfg = cfg
         self.engine = engine
-        self.app = Application.builder().token(cfg.telegram.bot_token).build()
+        # Timeout diperbesar agar tahan jaringan VPS/RDP yang lambat ke server Telegram.
+        self.app = (
+            Application.builder()
+            .token(cfg.telegram.bot_token)
+            .connect_timeout(30.0)
+            .read_timeout(30.0)
+            .write_timeout(30.0)
+            .pool_timeout(30.0)
+            .get_updates_connect_timeout(30.0)
+            .get_updates_read_timeout(30.0)
+            .build()
+        )
         self._register()
 
     def _register(self):
@@ -40,6 +51,14 @@ class TelegramController:
         self.app.add_handler(CommandHandler("status", self.cmd_status))
         self.app.add_handler(CommandHandler("balance", self.cmd_balance))
         self.app.add_handler(CommandHandler("positions", self.cmd_positions))
+        # Error handler: jangan biarkan gangguan jaringan sesaat mematikan bot.
+        self.app.add_error_handler(self._on_error)
+
+    async def _on_error(self, update, context):
+        import logging
+        logging.getLogger("bangran_bot").warning(
+            "Telegram error (diabaikan agar bot tetap jalan): %s", context.error
+        )
 
     def _authorized(self, update: Update) -> bool:
         allowed = self.cfg.telegram.allowed_chat_ids
