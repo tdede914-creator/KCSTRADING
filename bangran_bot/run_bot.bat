@@ -10,8 +10,10 @@ REM ============================================================
 REM --- Akun MetaTrader 5 (Exness) ---
 set MT5_LOGIN=12345678
 set MT5_PASSWORD=PasswordDemoAnda
-set MT5_SERVER=Exness-MT5Trial8
-set MT5_SYMBOL=XAUUSDm
+REM   SERVER: lihat persis di MT5 (akun cent real biasanya Exness-MT5Real...)
+set MT5_SERVER=Exness-MT5Real8
+REM   SYMBOL: akun cent Exness pakai akhiran c -> XAUUSDc (cek di Market Watch)
+set MT5_SYMBOL=XAUUSDc
 
 REM --- Telegram ---
 set TELEGRAM_TOKEN=123456:ABC-TokenDariBotFather
