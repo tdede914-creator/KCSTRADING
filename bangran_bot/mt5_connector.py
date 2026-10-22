@@ -44,18 +44,50 @@ class MT5Connector:
         self.cfg = cfg
 
     def connect(self) -> bool:
-        kwargs = {}
+        # Teruskan kredensial LANGSUNG ke initialize() -> cara paling andal,
+        # sering memperbaiki error -6 'Authorization failed'.
+        init_kwargs = {}
         if self.cfg.terminal_path:
-            kwargs["path"] = self.cfg.terminal_path
-        if not mt5.initialize(**kwargs):
-            raise RuntimeError(f"mt5.initialize gagal: {mt5.last_error()}")
+            init_kwargs["path"] = self.cfg.terminal_path
         if self.cfg.login:
-            ok = mt5.login(self.cfg.login, password=self.cfg.password, server=self.cfg.server)
-            if not ok:
-                raise RuntimeError(f"Login MT5 gagal: {mt5.last_error()}")
-        # pastikan simbol aktif di Market Watch
-        if not mt5.symbol_select(self.cfg.symbol if hasattr(self.cfg, "symbol") else "XAUUSD", True):
-            pass
+            init_kwargs["login"] = int(self.cfg.login)
+            init_kwargs["password"] = self.cfg.password
+            init_kwargs["server"] = self.cfg.server
+
+        ok = mt5.initialize(**init_kwargs)
+        if not ok:
+            err = mt5.last_error()
+            # fallback: coba attach ke terminal yang sudah login manual (tanpa kredensial)
+            mt5.shutdown()
+            if mt5.initialize():
+                info = mt5.account_info()
+                if info is not None:
+                    return self._ensure_symbol()
+            raise RuntimeError(
+                f"mt5.initialize gagal: {err}. Cek hal berikut:\n"
+                "1) MT5 sudah DIBUKA dan LOGIN manual ke akun yang benar dulu.\n"
+                "2) LOGIN, PASSWORD, dan SERVER di run_bot.bat PERSIS sama "
+                "(server akun cent biasanya seperti 'Exness-MT5Real...' bukan 'Trial').\n"
+                "3) Tombol 'Algo Trading' di MT5 aktif (hijau).\n"
+                "4) Password yang dipakai adalah password akun, bukan password investor."
+            )
+
+        info = mt5.account_info()
+        if info is None:
+            raise RuntimeError(
+                f"Terhubung tapi account_info kosong: {mt5.last_error()}. "
+                "Pastikan akun benar-benar login di MT5."
+            )
+        return self._ensure_symbol()
+
+    def _ensure_symbol(self) -> bool:
+        symbol = getattr(self.cfg, "symbol", None) or "XAUUSD"
+        if not mt5.symbol_select(symbol, True):
+            raise RuntimeError(
+                f"Simbol '{symbol}' tidak ditemukan di MT5. Buka Market Watch -> "
+                "klik kanan -> Show All, cari 'XAU', lalu set MT5_SYMBOL sesuai nama persisnya "
+                "(akun cent Exness biasanya 'XAUUSDc')."
+            )
         return True
 
     def shutdown(self):
