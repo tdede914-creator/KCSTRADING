@@ -1,0 +1,11 @@
+# Jalankan di Windows (untuk live trading MT5).
+# Backtest (backtest.py) cukup pakai numpy + pandas dan bisa di OS mana saja.
+
+numpy>=1.24
+pandas>=2.0
+
+# Live trading (WAJIB Windows + aplikasi MetaTrader 5 terpasang):
+MetaTrader5>=5.0.45
+
+# Kontrol Telegram:
+python-telegram-bot>=20.7
