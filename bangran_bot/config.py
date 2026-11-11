@@ -78,6 +78,7 @@ class AppConfig:
     mt5: MT5Config = field(default_factory=MT5Config)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     poll_seconds: int = 5             # jeda loop cek sinyal (detik)
+    signal_cooldown_seconds: int = 90 # jeda minimum antar sinyal/order agar tidak spam
     dry_run: bool = True              # True = hanya sinyal/log, tidak kirim order sungguhan
 
 

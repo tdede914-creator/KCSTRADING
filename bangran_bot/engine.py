@@ -16,6 +16,12 @@ from config import AppConfig
 from risk import RiskGuard, calc_lot_size
 from strategy import Side, generate_signal
 
+try:
+    from mt5_connector import describe_retcode
+except Exception:  # agar engine tetap bisa diimpor tanpa MT5
+    def describe_retcode(code):
+        return str(code)
+
 
 @dataclass
 class EngineState:
@@ -41,6 +47,7 @@ class TradingEngine:
         self.risk = RiskGuard(cfg.risk)
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._last_action_ts = 0.0  # untuk cooldown antar sinyal/order
 
     # ---- kontrol ----
     def start(self):
@@ -134,6 +141,12 @@ class TradingEngine:
             self.state.last_signal = "Tidak ada setup (menunggu)"
             return
 
+        # cooldown: cegah sinyal/order sama diulang tiap beberapa detik
+        now_ts = time.time()
+        if now_ts - self._last_action_ts < self.cfg.signal_cooldown_seconds:
+            return
+        self._last_action_ts = now_ts
+
         lot = calc_lot_size(self.cfg.risk, self.state.balance, sig.entry, sig.stop_loss)
         msg = (
             f"🔔 SINYAL {sig.side.value}\n"
@@ -160,4 +173,9 @@ class TradingEngine:
             self.risk.trades_today += 1
             self.notify(msg + "\n✅ Order terkirim.")
         else:
-            self.notify(msg + f"\n❌ Order gagal: retcode={retcode}")
+            comment = getattr(result, "comment", "")
+            self.notify(
+                msg
+                + f"\n❌ Order gagal (retcode {retcode}): {describe_retcode(retcode)}"
+                + (f"\nKeterangan broker: {comment}" if comment else "")
+            )

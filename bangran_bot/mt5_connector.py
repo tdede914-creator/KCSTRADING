@@ -34,6 +34,31 @@ def _tf_const(tf: str):
     return mapping[tf]
 
 
+# penjelasan kode hasil order MT5 dalam bahasa manusia (Indonesia)
+_RETCODE_INFO = {
+    10004: "Requote (harga berubah). Bot akan coba lagi di sinyal berikutnya.",
+    10006: "Order ditolak broker.",
+    10013: "Permintaan tidak valid.",
+    10014: "Volume (lot) tidak valid untuk simbol ini.",
+    10015: "Harga tidak valid.",
+    10016: "SL/TP tidak valid — biasanya terlalu dekat ke harga (jarak stop minimum broker).",
+    10017: "Trading dinonaktifkan untuk akun/simbol ini.",
+    10018: "Market TUTUP (mis. akhir pekan / di luar jam sesi).",
+    10019: "Dana tidak cukup untuk membuka posisi dengan lot ini.",
+    10020: "Harga berubah.",
+    10021: "Tidak ada quote (harga) — simbol mungkin tidak aktif.",
+    10024: "Terlalu banyak permintaan (rate limit).",
+    10026: "AutoTrading dinonaktifkan di sisi SERVER broker.",
+    10027: "AutoTrading dinonaktifkan di TERMINAL — aktifkan tombol 'Algo Trading' di MT5 (harus hijau).",
+    10030: "Tipe filling order tidak didukung simbol ini (bot akan pilih otomatis).",
+    10031: "Tidak ada koneksi ke server trading.",
+}
+
+
+def describe_retcode(code: int) -> str:
+    return _RETCODE_INFO.get(code, "Kode tidak dikenal — cek jurnal MT5 tab 'Experts'/'Journal'.")
+
+
 class MT5Connector:
     def __init__(self, cfg: MT5Config):
         if not MT5_AVAILABLE:
@@ -116,6 +141,42 @@ class MT5Connector:
         pos = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
         return list(pos) if pos else []
 
+    # ---- helper order ----
+    def _pick_filling(self, symbol: str):
+        """Pilih tipe filling yang didukung simbol (cegah error 10030)."""
+        info = mt5.symbol_info(symbol)
+        mode = getattr(info, "filling_mode", 0) if info else 0
+        if mode & 2:   # SYMBOL_FILLING_IOC
+            return mt5.ORDER_FILLING_IOC
+        if mode & 1:   # SYMBOL_FILLING_FOK
+            return mt5.ORDER_FILLING_FOK
+        return mt5.ORDER_FILLING_RETURN
+
+    def _clamp_volume(self, symbol: str, lot: float) -> float:
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return lot
+        step = info.volume_step or 0.01
+        lot = round(round(lot / step) * step, 2)
+        return max(info.volume_min, min(info.volume_max, lot))
+
+    def _normalize_stops(self, symbol: str, side: str, price: float, sl: float, tp: float):
+        """Bulatkan ke digit simbol & jaga jarak stop minimum broker (cegah 10016)."""
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return round(sl, 2), round(tp, 2)
+        digits = info.digits
+        point = info.point
+        min_dist = (getattr(info, "trade_stops_level", 0) or 0) * point
+        if min_dist > 0:
+            if side == "BUY":
+                sl = min(sl, price - min_dist)
+                tp = max(tp, price + min_dist)
+            else:
+                sl = max(sl, price + min_dist)
+                tp = min(tp, price - min_dist)
+        return round(sl, digits), round(tp, digits)
+
     # ---- order ----
     def market_order(self, symbol: str, side: str, lot: float, sl: float, tp: float,
                      deviation: int, magic: int, comment: str = "bangran_bot"):
@@ -128,19 +189,21 @@ class MT5Connector:
         else:
             order_type = mt5.ORDER_TYPE_SELL
             price = tick.bid
+        lot = self._clamp_volume(symbol, float(lot))
+        sl, tp = self._normalize_stops(symbol, side, price, float(sl), float(tp))
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
-            "volume": float(lot),
+            "volume": lot,
             "type": order_type,
             "price": price,
-            "sl": float(sl),
-            "tp": float(tp),
+            "sl": sl,
+            "tp": tp,
             "deviation": int(deviation),
             "magic": int(magic),
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": self._pick_filling(symbol),
         }
         result = mt5.order_send(request)
         return result
